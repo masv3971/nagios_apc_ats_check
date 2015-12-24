@@ -1,7 +1,7 @@
 #! /usr/local/bin/perl
 #
-# $Id: check_apc-load 9632 2015-12-17 12:53:53Z masv3971 $
-# $HeadURL: svn+ssh://svn.it.su.se/svn/system/nagios/scripts/checks/check_apc-load $
+# $Id$
+# $HeadURL$
 #
 # Don't use embedded perl for this check. Must be in first 10 lines of file!
 #
