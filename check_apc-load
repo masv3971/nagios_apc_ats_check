@@ -1,0 +1,253 @@
+#! /usr/local/bin/perl
+#
+# $Id: check_apc-load 9632 2015-12-17 12:53:53Z masv3971 $
+# $HeadURL: svn+ssh://svn.it.su.se/svn/system/nagios/scripts/checks/check_apc-load $
+#
+# Don't use embedded perl for this check. Must be in first 10 lines of file!
+#
+# nagios: -epn
+#
+#
+#################################################
+# Product: ATS - Automatic Transfer Switch      #
+# Manufacturer: APC                             #                
+# Model: AP7723                                 #
+#                                               #                    
+# Retrive output load.                          #
+#                                               #
+#################################################
+#
+
+use strict;
+use lib "/local/nagios/lib";
+use SU_Nagios qw ( exit_clean get_snmp_community );
+use Net::SNMP;
+use Getopt::Std;
+use vars qw ($opt_h $opt_H $opt_v $opt_C $opt_w $opt_c);
+
+# OID base for load
+my $OID_BASE = "1.3.6.1.4.1.318.1.1.8.5.4.3.1.4.1.1.1";
+
+# SNMP options
+my $version = "1";
+my $timeout = 2;
+
+# The top secret community name (password)...
+my $community = get_snmp_community ('snmp');
+
+# Thresholds
+my $critical_high_load = -1;
+my $warning_high_load = -1;
+my $critical_low_load = -1;
+my $warning_low_load = -1;
+
+# Our return status - we start with 0 (OK) and hope for the best
+my $status = 0;
+
+# Our return string with lots of interesting stuff in it
+my $returnstr = "";
+
+# The SNMP hostname and community to use for the query
+my $hostname = "";
+
+# Number of power phases attached to the UPS
+my $num_phases = "0";
+
+# Grab the command line options
+getopts("h:H:v:f:C:w:c:");
+
+# If we didn't get any options, show some help and quit
+if ($opt_h){
+    usage ();
+}
+
+# Get the hostname, if it was given..
+if (defined($opt_H)){
+    $hostname = $opt_H;
+} else {
+    # We really need a hostname
+    usage();
+}
+
+if (defined($opt_v)) {
+    # Get the snmp version for the UPS or use the default
+    $version = $opt_v;
+}
+
+# Get the SNMP community
+if (defined($opt_C)){
+    $community = $opt_C;
+}
+
+# Grab the warning thresholds
+if (defined($opt_w)) {
+    my @warning = split(/\./, $opt_w);
+
+    if (!($warning[0] eq "")) {
+        $warning_low_load= $warning[0];
+    }
+    if (!($warning[1] eq "")) {
+        $warning_high_load = $warning[1];
+    }
+}
+
+# Grab the critical thresholds
+if (defined($opt_c)) {
+    my @critical = split(/\./, $opt_c);
+
+    if (!($critical[0] eq "")) {
+        $critical_low_load = $critical[0];
+    }
+    if (!($critical[1] eq "")) {
+        $critical_high_load = $critical[1];
+    }
+
+    # If we also have the maximum load value, make sure it is higher
+    # than the minimum
+    if (($critical_high_load != -1) &&
+        ($critical_high_load < $critical_low_load)) {
+        exit_clean ('CRITICAL', "Critical load maximum is lower than the minimum!\n");
+    }
+
+}
+
+# If we have both high load thresholds, make sure the critical is higher than
+# the warning
+if (($warning_high_load != -1) &&
+    ($critical_high_load != -1) &&
+    ($warning_high_load > $critical_high_load)) {
+    exit_clean ('CRITICAL', "The high critical load is lower than warning load!\n");
+}
+
+
+# If we have both low load thresholds, make sure the critical is lower than
+# the warning
+if (($warning_low_load != -1) &&
+    ($critical_low_load != -1) &&
+    ($warning_low_load > $critical_low_load)) {
+    exit_clean ('CRITICAL', "The low critical load is higher than warning load!\n");
+}
+
+
+# Initialise the SNMP session via the Net::SNMP perl module
+my ($snmp_session, $snmp_error) = Net::SNMP->session(
+    -community => $community,
+    -hostname => $hostname,
+    -version => $version,
+    -timeout => $timeout,
+    );
+
+# Grab interesting details
+check_device();
+
+# Shut down the SNMP session
+$snmp_session->close();
+
+# Do not use numerical comparision to avoid failures with ePN in Nagios2. Sigh.
+$status = 'UNKNOWN'  if ("$status" eq '-1');
+$status = 'OK'       if ("$status" eq '0');
+$status = 'WARNING'  if ("$status" eq '1');
+$status = 'CRITICAL' if ("$status" eq '2');
+exit_clean ($status, $returnstr . "\n");
+
+
+##############################################################################
+##############################################################################
+#
+# Change the status level
+#
+sub status {
+    my $newstatus = $_[0];
+
+    # If the new status is greater than the old status, change the old status
+    if ($newstatus > $status) {
+        $status = $newstatus;
+    }
+}
+
+
+##############################################################################
+##############################################################################
+#
+# Grab a value from snmp
+#
+sub grab_snmp_value {
+    my $this_oid = $_[0];
+    my $this_value = "";
+
+    # Try to grab the OID's value, if it exists
+    if (defined($snmp_session->get_request($this_oid))) {
+        foreach ($snmp_session->var_bind_names()) {
+            $this_value = $snmp_session->var_bind_list()->{$_};
+        }
+    }
+
+    # Return the value we got..
+    return $this_value;
+}
+
+
+##############################################################################
+##############################################################################
+#
+# Grab lots of interesting info about the device
+#
+sub check_device {
+    # Grab some values
+    my $OID;
+    my $snmp_ret_value;
+    
+    $returnstr = '';
+    
+       $snmp_ret_value = grab_snmp_value($OID_BASE);
+	$snmp_ret_value = $snmp_ret_value / 10;
+       # Only perfom checks if $snmp_ret_value is not empty.
+       # A value of "0" is OK, therefore check for an empty string.
+       if ($snmp_ret_value ne "") {
+           # Have we broken a threshold?
+           if ((($critical_high_load != -1) &&
+                ($snmp_ret_value > $critical_high_load)) ||
+               (($critical_low_load != -1) &&
+                ($snmp_ret_value < $critical_low_load))) {
+               status(2); # Critical
+               $returnstr .= ($returnstr?", ":''). "Critical outgoing load:";
+           } elsif ((($warning_high_load != -1) &&
+                     ($snmp_ret_value > $warning_high_load)) ||
+                    (($warning_low_load != -1) &&
+                     ($snmp_ret_value < $warning_low_load))) {
+               status(1); # Warning
+               $returnstr .= ($returnstr?", ":''). "Warning outgoing load:";
+           }
+
+            #$returnstr .= ($returnstr?", ":''). "Outgoing load: ".sprintf("%.2f", $snmp_ret_value)." %";
+            $returnstr .= ($returnstr?", ":''). "Outgoing load: $snmp_ret_value A";
+        } else {
+            status(2); # CRITICAL
+            $returnstr .= ($returnstr?", ":''). "no data aviable";
+        }
+    }
+
+
+
+##############################################################################
+##############################################################################
+#
+# Usage information
+#
+sub usage {
+    print << "USAGE";
+    $0
+
+        Check a APC's ATS\' system load via SNMP
+
+Usage: $0 -H <hostname> -v <version> -f <phases> [-C <community>] [-w <load min>,<load max>] [-c <load min>,<load max>]
+
+Options:
+        -v  SNMP version supported by the ATS (default is $version)
+        -H  Hostname or IP address of the APC ATS
+        -C  SNMP read community (default is public)
+        -w  Warning level min och max for system load
+        -c  Critical level min och max for system load
+USAGE
+    exit_clean ('CRITICAL');
+}
