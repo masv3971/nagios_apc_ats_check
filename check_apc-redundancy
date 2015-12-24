@@ -1,8 +1,8 @@
 #! /usr/local/bin/perl
 
 #
-# $Id: check_apc-redundancy 9632 2015-12-17 12:53:53Z masv3971 $
-# $HeadURL: svn+ssh://svn.it.su.se/svn/system/nagios/scripts/checks/check_apc-redundancy $
+# $Id$
+# $HeadURL$
 #
 
 # nagios: -epn
