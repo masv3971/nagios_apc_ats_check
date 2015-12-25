@@ -151,12 +151,12 @@ sub usage {
     print << "USAGE";
     $0
 
-    Check a ATSd ATS\' incomming Redundancy via SNMP
+    Check a APC ATS\' incomming Redundancy via SNMP
 
 Usage: $0 -H <hostname> -v <version>  [-C <community>] 
 
 Options:
-        -H     Hostname or IP address of the Masterguard UPS
+        -H     Hostname or IP address of the APC ATS.
         -v     SNMP version supported by the UPS (default is $version)
         -C     SNMP read community (default is public)
 USAGE
